@@ -139,23 +139,28 @@
         return nil;
     }
 
+    //First button is required for proper disable
     __block PSTAlertAction* firstButtonAction = nil;
     __block PSTAlertAction* cancelButtonAction = nil;
+    __block PSTAlertAction* destructiveButtonAction = nil;
     NSMutableArray* otherActions = [self.actions mutableCopy];
     [ self.actions enumerateObjectsUsingBlock: ^(PSTAlertAction* action, NSUInteger index, BOOL *stop) {
-        if (action.style == PSTAlertActionStyleCancel) {
-            cancelButtonAction = action;
-            [otherActions removeObject: action];
-        } else if (!firstButtonAction) {
+        if (action.style == PSTAlertActionStyleDefault) {
             firstButtonAction = action;
             [otherActions removeObject: action];
+            *stop = YES;
+        } else if (action.style == PSTAlertActionStyleCancel) {
+            cancelButtonAction = action;
+            [otherActions removeObject: action];
+        } else if (action.style == PSTAlertActionStyleDestructive) {
+            destructiveButtonAction = action;
+            [otherActions removeObject: action];
         }
-        *stop = cancelButtonAction && firstButtonAction;
     } ];
 
     id sheetStorage = nil;
     if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
-        sheetStorage = [[UIActionSheet alloc] initWithTitle:self.title delegate:self cancelButtonTitle:cancelButtonAction.title destructiveButtonTitle:nil otherButtonTitles:firstButtonAction.title, nil];
+        sheetStorage = [[UIActionSheet alloc] initWithTitle:self.title delegate:self cancelButtonTitle:cancelButtonAction.title destructiveButtonTitle:destructiveButtonAction.title otherButtonTitles:firstButtonAction.title, nil];
     } else {
         sheetStorage = [[UIAlertView alloc] initWithTitle:self.title message:self.message delegate:self cancelButtonTitle:cancelButtonAction.title otherButtonTitles:firstButtonAction.title, nil];
     }
@@ -171,7 +176,10 @@
                 [sheetStorage setCancelButtonIndex: currentButtonIndex];
             }
         } else {
-            [sheetStorage addButtonWithTitle:action.title];
+            NSUInteger currentButtonIndex = [sheetStorage addButtonWithTitle:action.title];
+            if (action.style == PSTAlertActionStyleCancel) {
+                [sheetStorage setCancelButtonIndex: currentButtonIndex];
+            }
         }
     }
 

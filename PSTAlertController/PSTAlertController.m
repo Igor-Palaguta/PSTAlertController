@@ -77,6 +77,7 @@
 
 @property (nonatomic, copy) NSArray *willDismissBlocks;
 @property (nonatomic, copy) NSArray *didDismissBlocks;
+@property (nonatomic, copy) PSTAlertControllerPredicate buttonEnabledPredicate;
 
 // iOS 8
 @property (nonatomic, strong) PSTExtendedAlertController *alertController;
@@ -177,7 +178,7 @@
         }
     }
 
-    if (self.preferredStyle == PSTAlertControllerStyleActionSheet && [self.textFieldHandlers count] > 0) {
+    if (self.preferredStyle == PSTAlertControllerStyleAlert && [self.textFieldHandlers count] > 0) {
         UIAlertViewStyle style = self.textFieldHandlers.count > 1 ? UIAlertViewStyleLoginAndPasswordInput : UIAlertViewStylePlainTextInput;
         [sheetStorage setAlertViewStyle:style];
         
@@ -193,7 +194,7 @@
 }
 
 - (UIView *)strongSheetStorage {
-    if (!_strongSheetStorage) {
+    if (!_strongSheetStorage && !self.weakSheetStorage) {
         _strongSheetStorage = [self lazySheetStorage];
     }
     return _strongSheetStorage;
@@ -205,17 +206,6 @@
 
 - (UIActionSheet *)actionSheet {
     return (UIActionSheet *)(self.strongSheetStorage ?: self.weakSheetStorage);
-}
-
-- (PSTAlertControllerPredicate)firstButtonEnabledPredicate {
-    return objc_getAssociatedObject(self, @selector(firstButtonEnabledPredicate));
-}
-
-- (void)setFirstButtonEnabledPredicate:(PSTAlertControllerPredicate)firstButtonEnabledPredicate
-{
-    NSParameterAssert(self.preferredStyle == PSTAlertControllerStyleAlert);
-
-    objc_setAssociatedObject(self, @selector(firstButtonEnabledPredicate), [firstButtonEnabledPredicate copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -242,10 +232,10 @@
 #pragma mark - Text Field Support
 
 - (void)disableFirstButtonIfNeeded {
-    if (self.firstButtonEnabledPredicate) {
+    if (self.buttonEnabledPredicate) {
         for (UIAlertAction* action in self.alertController.actions) {
             if (action.style == UIAlertActionStyleDefault) {
-                action.enabled = self.firstButtonEnabledPredicate(self);
+                action.enabled = self.buttonEnabledPredicate(self);
                 return;
             }
         }
@@ -538,7 +528,7 @@ static NSUInteger PSTVisibleAlertsCount = 0;
 
 - (BOOL)alertViewShouldEnableFirstOtherButton:(UIAlertView *)alertView
 {
-    if (self.firstButtonEnabledPredicate && !self.firstButtonEnabledPredicate(self)) {
+    if (self.buttonEnabledPredicate && !self.buttonEnabledPredicate(self)) {
         return NO;
     }
 
@@ -579,6 +569,11 @@ static NSUInteger PSTVisibleAlertsCount = 0;
 
 - (void)addCancelActionWithHandler:(void (^)(PSTAlertAction *action))handler {
     [self addAction:[PSTAlertAction actionWithTitle:NSLocalizedString(@"Cancel", @"") style:PSTAlertActionStyleCancel handler:handler]];
+}
+
+- (void)setFirstButtonEnabledPredicate:(PSTAlertControllerPredicate)firstButtonEnabledPredicate {
+   NSParameterAssert(self.preferredStyle == PSTAlertControllerStyleAlert);
+   self.buttonEnabledPredicate = firstButtonEnabledPredicate;
 }
 
 @end

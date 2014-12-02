@@ -105,8 +105,9 @@ typedef BOOL (^PSTAlertControllerPredicate)(PSTAlertController*);
 // In a two-button alert that proposes a benign action that people are likely to want, the button that cancels the action should be on the left (and dark-colored).
 - (void)addCancelActionWithHandler:(void (^)(PSTAlertAction *action))handler; // convenience
 
+- (void)setFirstButtonEnabledPredicate:(PSTAlertControllerPredicate)firstButtonEnabledPredicate;
+
 @property (nonatomic, readonly) UITextField *textField;
-@property (nonatomic, copy) PSTAlertControllerPredicate firstButtonEnabledPredicate;
 
 @end
 

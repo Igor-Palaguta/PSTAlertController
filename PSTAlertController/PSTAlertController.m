@@ -79,9 +79,6 @@
 @property (nonatomic, copy) NSArray *didDismissBlocks;
 @property (nonatomic, copy) PSTAlertControllerPredicate buttonEnabledPredicate;
 
-// iOS 8
-@property (nonatomic, strong) PSTExtendedAlertController *alertController;
-
 // Universal
 @property (nonatomic, weak) PSTAlertAction *executedAlertAction;
 
@@ -91,9 +88,9 @@
 @property (nonatomic, strong, readonly) UIActionSheet *actionSheet;
 @property (nonatomic, strong, readonly) UIAlertView *alertView;
 
-// Storage for actionSheet/alertView
-@property (nonatomic, strong) UIView *strongSheetStorage;
-@property (nonatomic, weak) UIView *weakSheetStorage;
+// Storage for actionSheet/alertView/alertController
+@property (nonatomic, strong) id strongSheetStorage;
+@property (nonatomic, weak) id weakSheetStorage;
 @end
 
 @implementation PSTAlertController
@@ -116,7 +113,7 @@
         _preferredStyle = preferredStyle;
 
         if ([self alertControllerAvailable]) {
-            _alertController = [PSTExtendedAlertController alertControllerWithTitle:title message:message preferredStyle:(UIAlertControllerStyle)preferredStyle];
+            _strongSheetStorage = [PSTExtendedAlertController alertControllerWithTitle:title message:message preferredStyle:(UIAlertControllerStyle)preferredStyle];
         }
     }
     return self;
@@ -193,19 +190,31 @@
 #endif
 }
 
-- (UIView *)strongSheetStorage {
+- (id)strongSheetStorage {
+    if ([self alertControllerAvailable]) {
+        return _strongSheetStorage;
+    }
+
     if (!_strongSheetStorage && !self.weakSheetStorage) {
         _strongSheetStorage = [self lazySheetStorage];
     }
     return _strongSheetStorage;
 }
 
+-(id)alert {
+    return self.strongSheetStorage ?: self.weakSheetStorage;
+}
+
 - (UIAlertView *)alertView {
-    return (UIAlertView *)(self.strongSheetStorage ?: self.weakSheetStorage);
+    return (UIAlertView *)[self alert];
 }
 
 - (UIActionSheet *)actionSheet {
-    return (UIActionSheet *)(self.strongSheetStorage ?: self.weakSheetStorage);
+    return (UIActionSheet *)[self alert];
+}
+
+- (UIAlertController *)alertController {
+    return (UIAlertController *)[self alert];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -219,9 +228,9 @@
     self.actions = [[NSArray arrayWithArray:self.actions] arrayByAddingObject:action];
 
     if ([self alertControllerAvailable]) {
-        __weak typeof (self) weakSelf = self;
         UIAlertAction *alertAction = [UIAlertAction actionWithTitle:action.title style:(UIAlertActionStyle)action.style handler:^(UIAlertAction *uiAction) {
-            weakSelf.executedAlertAction = action;
+            //retain self, otherwise action.alertController can return nil. No cyclic reference after alert is shown.
+            self.executedAlertAction = action;
             [action performAction];
         }];
         [self.alertController addAction:alertAction];
@@ -313,12 +322,12 @@ static NSUInteger PSTVisibleAlertsCount = 0;
                 UIApplication *sharedApplication = [UIApplication performSelector:NSSelectorFromString(PROPERTY(sharedApplication))];
                 controller = sharedApplication.keyWindow.rootViewController;
             }
-
+            
             // Use the frontmost viewController for presentation.
             while (controller.presentedViewController) {
                 controller = controller.presentedViewController;
             }
-
+            
             if (!controller) {
                 NSLog(@"Can't show alert because there is no root view controller.");
                 return;
@@ -328,7 +337,7 @@ static NSUInteger PSTVisibleAlertsCount = 0;
         // We absolutely need a controller going forward.
         NSParameterAssert(controller);
 
-        PSTExtendedAlertController *alertController = self.alertController;
+        PSTExtendedAlertController *alertController = (PSTExtendedAlertController *)self.alertController;
         UIPopoverPresentationController *popoverPresentation = alertController.popoverPresentationController;
         if (popoverPresentation) { // nil on iPhone
             if ([sender isKindOfClass:UIBarButtonItem.class]) {
@@ -365,22 +374,16 @@ static NSUInteger PSTVisibleAlertsCount = 0;
         };
 
         [self disableFirstButtonIfNeeded];
-        [controller presentViewController:alertController animated:animated completion:^{
-            // Bild lifetime of self to the controller.
-            // Will not be called if presenting fails because another present/dismissal already happened during that runloop.
-            // rdar://problem/19045528
-            objc_setAssociatedObject(controller, _cmd, self, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }];
-
+        [controller presentViewController:alertController animated:animated completion:nil];
     } else {
         if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
             [self showActionSheetWithSender:sender fallbackView:controller.view animated:animated];
-            [self moveSheetToWeakStorage];
         } else {
             [self.alertView show];
-            [self moveSheetToWeakStorage];
         }
     }
+
+    [self moveSheetToWeakStorage];
     [self setIsShowingAlert:YES];
 }
 
@@ -526,8 +529,7 @@ static NSUInteger PSTVisibleAlertsCount = 0;
     [self viewDidDismissWithButtonIndex:buttonIndex];
 }
 
-- (BOOL)alertViewShouldEnableFirstOtherButton:(UIAlertView *)alertView
-{
+- (BOOL)alertViewShouldEnableFirstOtherButton:(UIAlertView *)alertView {
     if (self.buttonEnabledPredicate && !self.buttonEnabledPredicate(self)) {
         return NO;
     }
@@ -572,8 +574,8 @@ static NSUInteger PSTVisibleAlertsCount = 0;
 }
 
 - (void)setFirstButtonEnabledPredicate:(PSTAlertControllerPredicate)firstButtonEnabledPredicate {
-   NSParameterAssert(self.preferredStyle == PSTAlertControllerStyleAlert);
-   self.buttonEnabledPredicate = firstButtonEnabledPredicate;
+    NSParameterAssert(self.preferredStyle == PSTAlertControllerStyleAlert);
+    self.buttonEnabledPredicate = firstButtonEnabledPredicate;
 }
 
 @end

@@ -51,7 +51,9 @@
 				78E2989F1A0D0071007953FB /* PSTAlertViewControllerSampleTests */,
 				78E298841A0D0071007953FB /* Products */,
 			);
+			indentWidth = 4;
 			sourceTree = "<group>";
+			tabWidth = 4;
 		};
 		78E298841A0D0071007953FB /* Products */ = {
 			isa = PBXGroup;

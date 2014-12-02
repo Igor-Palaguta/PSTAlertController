@@ -116,14 +116,6 @@
 
         if ([self alertControllerAvailable]) {
             _alertController = [PSTExtendedAlertController alertControllerWithTitle:title message:message preferredStyle:(UIAlertControllerStyle)preferredStyle];
-        } else {
-#if __IPHONE_OS_VERSION_MIN_REQUIRED < 80000
-            if (preferredStyle == PSTAlertControllerStyleActionSheet) {
-                _strongSheetStorage = [[UIActionSheet alloc] initWithTitle:title delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
-            } else {
-                _strongSheetStorage = [[UIAlertView alloc] initWithTitle:title message:message delegate:self cancelButtonTitle:nil otherButtonTitles:nil];
-            }
-#endif
         }
     }
     return self;
@@ -142,12 +134,88 @@
 ///////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark - Accessors
 
+- (UIView *)lazySheetStorage {
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < 80000
+    NSParameterAssert(![self alertControllerAvailable]);
+    if ([self alertControllerAvailable]) {
+        return nil;
+    }
+
+    __block PSTAlertAction* firstButtonAction = nil;
+    __block PSTAlertAction* cancelButtonAction = nil;
+    NSMutableArray* otherActions = [self.actions mutableCopy];
+    [ self.actions enumerateObjectsUsingBlock: ^(PSTAlertAction* action, NSUInteger index, BOOL *stop) {
+        if (action.style == PSTAlertActionStyleCancel) {
+            cancelButtonAction = action;
+            [otherActions removeObject: action];
+        } else if (!firstButtonAction) {
+            firstButtonAction = action;
+            [otherActions removeObject: action];
+        }
+        *stop = cancelButtonAction && firstButtonAction;
+    } ];
+
+    id sheetStorage = nil;
+    if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
+        sheetStorage = [[UIActionSheet alloc] initWithTitle:self.title delegate:self cancelButtonTitle:cancelButtonAction.title destructiveButtonTitle:nil otherButtonTitles:firstButtonAction.title, nil];
+    } else {
+        sheetStorage = [[UIAlertView alloc] initWithTitle:self.title message:self.message delegate:self cancelButtonTitle:cancelButtonAction.title otherButtonTitles:firstButtonAction.title, nil];
+    }
+
+    for (PSTAlertAction* action in otherActions)
+    {
+        if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
+            NSUInteger currentButtonIndex = [sheetStorage addButtonWithTitle:action.title];
+            
+            if (action.style == PSTAlertActionStyleDestructive) {
+                [sheetStorage setDestructiveButtonIndex: currentButtonIndex];
+            } else if (action.style == PSTAlertActionStyleCancel) {
+                [sheetStorage setCancelButtonIndex: currentButtonIndex];
+            }
+        } else {
+            [sheetStorage addButtonWithTitle:action.title];
+        }
+    }
+
+    if (self.preferredStyle == PSTAlertControllerStyleActionSheet && [self.textFieldHandlers count] > 0) {
+        UIAlertViewStyle style = self.textFieldHandlers.count > 1 ? UIAlertViewStyleLoginAndPasswordInput : UIAlertViewStylePlainTextInput;
+        [sheetStorage setAlertViewStyle:style];
+        
+        [self.textFieldHandlers enumerateObjectsUsingBlock:^(void (^configurationHandler)(UITextField *textField), NSUInteger idx, BOOL *stop) {
+            configurationHandler([sheetStorage textFieldAtIndex:idx]);
+        }];
+    }
+
+    return sheetStorage;
+#else
+    return nil;
+#endif
+}
+
+- (UIView *)strongSheetStorage {
+    if (!_strongSheetStorage) {
+        _strongSheetStorage = [self lazySheetStorage];
+    }
+    return _strongSheetStorage;
+}
+
 - (UIAlertView *)alertView {
     return (UIAlertView *)(self.strongSheetStorage ?: self.weakSheetStorage);
 }
 
 - (UIActionSheet *)actionSheet {
     return (UIActionSheet *)(self.strongSheetStorage ?: self.weakSheetStorage);
+}
+
+- (PSTAlertControllerPredicate)firstButtonEnabledPredicate {
+    return objc_getAssociatedObject(self, @selector(firstButtonEnabledPredicate));
+}
+
+- (void)setFirstButtonEnabledPredicate:(PSTAlertControllerPredicate)firstButtonEnabledPredicate
+{
+    NSParameterAssert(self.preferredStyle == PSTAlertControllerStyleAlert);
+
+    objc_setAssociatedObject(self, @selector(firstButtonEnabledPredicate), [firstButtonEnabledPredicate copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -167,36 +235,40 @@
             [action performAction];
         }];
         [self.alertController addAction:alertAction];
-    } else {
-        if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
-            NSUInteger currentButtonIndex = [self.actionSheet addButtonWithTitle:action.title];
-
-            if (action.style == PSTAlertActionStyleDestructive) {
-                self.actionSheet.destructiveButtonIndex = currentButtonIndex;
-            } else if (action.style == PSTAlertActionStyleCancel) {
-                self.actionSheet.cancelButtonIndex = currentButtonIndex;
-            }
-        } else {
-            NSUInteger currentButtonIndex = [self.alertView addButtonWithTitle:action.title];
-
-            // UIAlertView doesn't support destructive buttons.
-            if (action.style == PSTAlertActionStyleCancel) {
-                self.alertView.cancelButtonIndex = currentButtonIndex;
-            }
-        }
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark - Text Field Support
 
+- (void)disableFirstButtonIfNeeded {
+    if (self.firstButtonEnabledPredicate) {
+        for (UIAlertAction* action in self.alertController.actions) {
+            if (action.style == UIAlertActionStyleDefault) {
+                action.enabled = self.firstButtonEnabledPredicate(self);
+                return;
+            }
+        }
+    }
+}
+
+- (void)textFieldDidChange:(UITextField *)textField {
+    [self disableFirstButtonIfNeeded];
+}
+
 - (void)addTextFieldWithConfigurationHandler:(void (^)(UITextField *textField))configurationHandler {
     if ([self alertControllerAvailable]) {
-        [self.alertController addTextFieldWithConfigurationHandler:configurationHandler];
+        __weak typeof (self) weakSelf = self;
+        [self.alertController addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            typeof (self) strongSelf = weakSelf;
+            [textField addTarget:strongSelf action:@selector(textFieldDidChange:) forControlEvents:UIControlEventEditingChanged];
+            if (configurationHandler) {
+                configurationHandler(textField);
+            }
+        }];
     } else {
         NSAssert(self.preferredStyle == PSTAlertControllerStyleAlert, @"Text fields are only supported for alerts.");
         self.textFieldHandlers = [[NSArray arrayWithArray:self.textFieldHandlers] arrayByAddingObject:configurationHandler ?: ^(UITextField *textField){}];
-        self.alertView.alertViewStyle = self.textFieldHandlers.count > 1 ? UIAlertViewStyleLoginAndPasswordInput : UIAlertViewStylePlainTextInput;
     }
 }
 
@@ -302,6 +374,7 @@ static NSUInteger PSTVisibleAlertsCount = 0;
             [strongSelf performBlocks:PROPERTY(didDismissBlocks) withAction:strongSelf.executedAlertAction];
         };
 
+        [self disableFirstButtonIfNeeded];
         [controller presentViewController:alertController animated:animated completion:^{
             // Bild lifetime of self to the controller.
             // Will not be called if presenting fails because another present/dismissal already happened during that runloop.
@@ -314,10 +387,6 @@ static NSUInteger PSTVisibleAlertsCount = 0;
             [self showActionSheetWithSender:sender fallbackView:controller.view animated:animated];
             [self moveSheetToWeakStorage];
         } else {
-            // Call text field configuration handlers.
-            [self.textFieldHandlers enumerateObjectsUsingBlock:^(void (^configurationHandler)(UITextField *textField), NSUInteger idx, BOOL *stop) {
-                configurationHandler([self.alertView textFieldAtIndex:idx]);
-            }];
             [self.alertView show];
             [self moveSheetToWeakStorage];
         }
@@ -465,6 +534,15 @@ static NSUInteger PSTVisibleAlertsCount = 0;
 
 - (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex {
     [self viewDidDismissWithButtonIndex:buttonIndex];
+}
+
+- (BOOL)alertViewShouldEnableFirstOtherButton:(UIAlertView *)alertView
+{
+    if (self.firstButtonEnabledPredicate && !self.firstButtonEnabledPredicate(self)) {
+        return NO;
+    }
+
+    return YES;
 }
 
 @end

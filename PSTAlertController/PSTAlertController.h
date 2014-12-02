@@ -85,6 +85,8 @@ typedef NS_ENUM(NSInteger, PSTAlertActionStyle) {
 
 @end
 
+typedef BOOL (^PSTAlertControllerPredicate)(PSTAlertController*);
+
 @interface PSTAlertController (Convenience)
 
 // Convenience initializers
@@ -104,6 +106,7 @@ typedef NS_ENUM(NSInteger, PSTAlertActionStyle) {
 - (void)addCancelActionWithHandler:(void (^)(PSTAlertAction *action))handler; // convenience
 
 @property (nonatomic, readonly) UITextField *textField;
+@property (nonatomic, copy) PSTAlertControllerPredicate firstButtonEnabledPredicate;
 
 @end
 

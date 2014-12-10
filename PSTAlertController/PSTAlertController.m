@@ -145,7 +145,7 @@
     __block PSTAlertAction* destructiveButtonAction = nil;
     NSMutableArray* otherActions = [self.actions mutableCopy];
     [ self.actions enumerateObjectsUsingBlock: ^(PSTAlertAction* action, NSUInteger index, BOOL *stop) {
-        if (action.style == PSTAlertActionStyleDefault) {
+        if (action.style == PSTAlertActionStyleDefault || (action.style == PSTAlertActionStyleDestructive && self.preferredStyle == PSTAlertControllerStyleAlert)) {
             firstButtonAction = action;
             [otherActions removeObject: action];
             *stop = YES;

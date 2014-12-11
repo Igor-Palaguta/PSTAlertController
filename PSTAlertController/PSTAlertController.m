@@ -140,29 +140,47 @@
     }
 
     //First button is required for proper disable
-    __block PSTAlertAction* firstButtonAction = nil;
-    __block PSTAlertAction* cancelButtonAction = nil;
-    __block PSTAlertAction* destructiveButtonAction = nil;
-    NSMutableArray* otherActions = [self.actions mutableCopy];
-    [ self.actions enumerateObjectsUsingBlock: ^(PSTAlertAction* action, NSUInteger index, BOOL *stop) {
-        if (action.style == PSTAlertActionStyleDefault || (action.style == PSTAlertActionStyleDestructive && self.preferredStyle == PSTAlertControllerStyleAlert)) {
-            firstButtonAction = action;
-            [otherActions removeObject: action];
-            *stop = YES;
-        } else if (action.style == PSTAlertActionStyleCancel) {
-            cancelButtonAction = action;
-            [otherActions removeObject: action];
-        } else if (action.style == PSTAlertActionStyleDestructive) {
-            destructiveButtonAction = action;
-            [otherActions removeObject: action];
-        }
-    } ];
-
     id sheetStorage = nil;
-    if (self.preferredStyle == PSTAlertControllerStyleActionSheet) {
-        sheetStorage = [[UIActionSheet alloc] initWithTitle:self.title delegate:self cancelButtonTitle:cancelButtonAction.title destructiveButtonTitle:destructiveButtonAction.title otherButtonTitles:firstButtonAction.title, nil];
-    } else {
+    NSArray* otherActions = self.actions;
+    if (self.preferredStyle == PSTAlertControllerStyleAlert) {
+        __block PSTAlertAction* firstButtonAction = nil;
+        __block PSTAlertAction* cancelButtonAction = nil;
+        NSMutableArray* unusedDuringInitActions = [self.actions mutableCopy];
+        [self.actions enumerateObjectsUsingBlock: ^(PSTAlertAction* action, NSUInteger index, BOOL *stop) {
+            if (action.style == PSTAlertActionStyleDefault || action.style == PSTAlertActionStyleDestructive) {
+                firstButtonAction = action;
+                [unusedDuringInitActions removeObject: action];
+                *stop = YES;
+            } else if (action.style == PSTAlertActionStyleCancel) {
+                cancelButtonAction = action;
+                [unusedDuringInitActions removeObject: action];
+            }
+        }];
+
+        NSMutableArray* allActions = [NSMutableArray array];
+        if (cancelButtonAction) {
+            [allActions addObject: cancelButtonAction];
+        }
+
+        if (firstButtonAction) {
+            [allActions addObject: firstButtonAction];
+        }
+
+        otherActions = unusedDuringInitActions;
+        self.actions = [allActions arrayByAddingObjectsFromArray: otherActions];
+
         sheetStorage = [[UIAlertView alloc] initWithTitle:self.title message:self.message delegate:self cancelButtonTitle:cancelButtonAction.title otherButtonTitles:firstButtonAction.title, nil];
+
+        if ([self.textFieldHandlers count] > 0) {
+            UIAlertViewStyle style = self.textFieldHandlers.count > 1 ? UIAlertViewStyleLoginAndPasswordInput : UIAlertViewStylePlainTextInput;
+            [sheetStorage setAlertViewStyle:style];
+
+            [self.textFieldHandlers enumerateObjectsUsingBlock:^(void (^configurationHandler)(UITextField *textField), NSUInteger idx, BOOL *stop) {
+                configurationHandler([sheetStorage textFieldAtIndex:idx]);
+            }];
+        }
+    } else {
+        sheetStorage = [[UIActionSheet alloc] initWithTitle:self.title delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil, nil];
     }
 
     for (PSTAlertAction* action in otherActions)
@@ -181,15 +199,6 @@
                 [sheetStorage setCancelButtonIndex: currentButtonIndex];
             }
         }
-    }
-
-    if (self.preferredStyle == PSTAlertControllerStyleAlert && [self.textFieldHandlers count] > 0) {
-        UIAlertViewStyle style = self.textFieldHandlers.count > 1 ? UIAlertViewStyleLoginAndPasswordInput : UIAlertViewStylePlainTextInput;
-        [sheetStorage setAlertViewStyle:style];
-        
-        [self.textFieldHandlers enumerateObjectsUsingBlock:^(void (^configurationHandler)(UITextField *textField), NSUInteger idx, BOOL *stop) {
-            configurationHandler([sheetStorage textFieldAtIndex:idx]);
-        }];
     }
 
     return sheetStorage;
